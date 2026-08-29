@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # --- AegisAI Core Backend Engine ---
+  aegisai_backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: aegisai_backend
+    ports:
+      - "8000:8000"
+    networks:
+      - management_network
+      - protected_network
+    environment:
+      - PORT=8000
+      - ENVIRONMENT=production
+    restart: unless-stopped
+
+  # --- AegisAI SOC Command Dashboard ---
+  aegisai_frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: aegisai_frontend
+    ports:
+      - "5173:80"
+    networks:
+      - management_network
+    depends_on:
+      - aegisai_backend
+    restart: unless-stopped
+
+  # --- Protected Service Tier: SSH Server ---
+  ssh_server:
+    image: linuxserver/openssh-server:latest
+    container_name: aegis_ssh_server
+    networks:
+      - protected_network
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - PASSWORD_ACCESS=true
+      - USER_PASSWORD=aegis_secure_pass_2026
+      - USER_NAME=aegis_admin
+    restart: unless-stopped
+
+  # --- Protected Service Tier: Core REST API Server ---
+  api_server:
+    image: python:3.11-slim
+    container_name: aegis_api_server
+    command: python -c "import http.server, socketserver; socketserver.TCPServer(('0.0.0.0', 8000), http.server.SimpleHTTPRequestHandler).serve_forever()"
+    networks:
+      - protected_network
+    restart: unless-stopped
+
+  # --- Protected Service Tier: Web Server (Nginx) ---
+  web_server:
+    image: nginx:alpine
+    container_name: aegis_web_server
+    networks:
+      - protected_network
+    restart: unless-stopped
+
+  # --- Protected Service Tier: PostgreSQL Database Cluster ---
+  database:
+    image: postgres:15-alpine
+    container_name: aegis_database
+    environment:
+      - POSTGRES_DB=aegis_db
+      - POSTGRES_USER=aegis_user
+      - POSTGRES_PASSWORD=aegis_db_secret_key_v1
+    networks:
+      - protected_network
+    restart: unless-stopped
+
+networks:
+  protected_network:
+    driver: bridge
+    name: protected_network
+  quarantine_network:
+    driver: bridge
+    name: quarantine_network
+  management_network:
+    driver: bridge
+    name: management_network
